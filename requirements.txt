@@ -1,5 +1,8 @@
-streamlit
+flask
 ultralytics
-opencv-python-headless
+torch
+torchvision
+opencv-python
 Pillow
 numpy
+gunicorn

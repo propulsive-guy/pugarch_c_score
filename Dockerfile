@@ -1,20 +1,22 @@
-FROM python:3.10-slim
+# ✅ Use Google's ML-ready base image (avoids Docker Hub issues)
+FROM gcr.io/deeplearning-platform-release/base-cpu
 
-# Install required OS dependencies for OpenCV
-RUN apt-get update && apt-get install -y \
-    libgl1-mesa-glx \
-    libglib2.0-0 \
-    && rm -rf /var/lib/apt/lists/*
+# Prevent Python from writing pyc files and buffering stdout/stderr
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
 
+# Set working directory
 WORKDIR /app
 
-# Install Python packages
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Copy the rest of the app
+# Copy all files from GitHub repo into the container
 COPY . .
 
+# Upgrade pip and install dependencies
+RUN pip install --upgrade pip
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Expose port Cloud Run uses
 EXPOSE 8080
 
-CMD ["streamlit", "run", "main.py", "--server.port=8080", "--server.address=0.0.0.0"]
+# Run app using Gunicorn for production
+CMD ["gunicorn", "-b", "0.0.0.0:8080", "app:app"]
