@@ -45,65 +45,61 @@ def home():
 
 @app.route("/predict", methods=["POST"])
 def predict():
-    if 'image' not in request.files:
+    if 'images' not in request.files:
         return jsonify({
             "status": "error",
-            "message": "No image uploaded"
+            "message": "No images uploaded. Please upload using 'images' field as multipart/form-data."
         }), 400
 
-    file = request.files['image']
+    files = request.files.getlist('images')
+    responses = []
 
-    # Save image temporarily
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp_file:
-        file.save(tmp_file.name)
-        image_path = tmp_file.name
+    for file in files:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp_file:
+            file.save(tmp_file.name)
+            image_path = tmp_file.name
 
-    try:
-        # Run model inference
-        results = model(image_path)[0]
-        class_ids = results.boxes.cls.cpu().numpy().astype(int)
-        confidences = results.boxes.conf.cpu().numpy().astype(float)
+        try:
+            results = model(image_path)[0]
+            class_ids = results.boxes.cls.cpu().numpy().astype(int)
+            confidences = results.boxes.conf.cpu().numpy().astype(float)
 
-        # Compute raw score
-        raw_score = 0
-        class_confidence_dict = defaultdict(list)
+            raw_score = 0
+            class_confidence_dict = defaultdict(list)
 
-        for cls_id, conf in zip(class_ids, confidences):
-            weight = normalized_weights.get(cls_id, 1.0)
-            raw_score += weight * conf
-            class_confidence_dict[cls_id].append(conf)
+            for cls_id, conf in zip(class_ids, confidences):
+                weight = normalized_weights.get(cls_id, 1.0)
+                raw_score += weight * conf
+                class_confidence_dict[cls_id].append(conf)
 
-        # Invert score: lower raw score means cleaner image
-        cleanliness_score = max(0, round(10.0 - raw_score, 2))  # Clamp to 0–10
+            cleanliness_score = max(0, round(10.0 - raw_score, 2))  # Clamp to 0–10
 
-        # Breakdown metadata
-        breakdown = []
-        for cls_id, conf_list in class_confidence_dict.items():
-            avg_conf = float(np.mean(conf_list))
-            breakdown.append({
-                "class": class_mapping.get(cls_id, str(cls_id)),
-                "count": len(conf_list),
-                "avg_conf": round(avg_conf, 2),
-                "weight": round(normalized_weights.get(cls_id, 1.0), 2)
+            breakdown = []
+            for cls_id, conf_list in class_confidence_dict.items():
+                avg_conf = float(np.mean(conf_list))
+                breakdown.append({
+                    "class": class_mapping.get(cls_id, str(cls_id)),
+                    "count": len(conf_list),
+                    "avg_conf": round(avg_conf, 2),
+                    "weight": round(normalized_weights.get(cls_id, 1.0), 2)
+                })
+
+            responses.append({
+                "status": "success",
+                "score": cleanliness_score,
+                "metadata": {
+                    "raw_score": round(raw_score, 2),
+                    "breakdown": breakdown
+                },
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "filename": file.filename
             })
 
-        # Construct response
-        response = {
-            "status": "success",
-            "score": cleanliness_score,  # final score out of 10
-            "metadata": {
-                "raw_score": round(raw_score, 2),
-                "breakdown": breakdown
-            },
-            "timestamp": datetime.now(timezone.utc).isoformat()
-        }
+        finally:
+            if os.path.exists(image_path):
+                os.remove(image_path)
 
-        return jsonify(response)
-
-    finally:
-        # Clean up temp image
-        if os.path.exists(image_path):
-            os.remove(image_path)
+    return jsonify(responses)
 
 
 if __name__ == "__main__":
