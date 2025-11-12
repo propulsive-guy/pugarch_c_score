@@ -9,44 +9,38 @@ from datetime import datetime, timezone
 app = Flask(__name__)
 
 # Load model
-model = YOLO("best.pt")  # Ensure best.pt matches the updated 10-class model
+model = YOLO("best.pt")  # Make sure best.pt is in the working directory
 
-# Updated class mapping (index → label)
+# Class mapping (index to label)
 class_mapping = {
-    0: 'clean_indian',
-    1: 'clean_urinal',
-    2: 'clean_western',
-    3: 'damage',
-    4: 'dirty_basin',
-    5: 'dirty_floor',
-    6: 'dirty_indian',
-    7: 'dirty_urinal',
-    8: 'dirty_western',
-    9: 'garbage'
+    0: 'fine dust',
+    1: 'garbagebag',
+    2: 'liquid',
+    3: 'paper_waste',
+    4: 'plastic_bottles',
+    5: 'plasticbags',
+    6: 'stains'
 }
 
-# Class importance weights (you can adjust these if some classes are more critical)
+# Class importance weights
 original_weights = {
-    0: 0.5,  # clean_indian → positive class, low impact
-    1: 0.5,  # clean_urinal
-    2: 0.5,  # clean_western
-    3: 4,    # damage
-    4: 3,    # dirty_basin
-    5: 4,    # dirty_floor
-    6: 4,    # dirty_indian
-    7: 3,    # dirty_urinal
-    8: 4,    # dirty_western
-    9: 5     # garbage → most severe
+    0: 1,
+    1: 5,
+    2: 4,
+    3: 2,
+    4: 3,
+    5: 4,
+    6: 3
 }
 
-# Normalize weights to a 0–10 scale
+# Normalize weights to a base-10 scale
 total_weight = sum(original_weights.values())
 normalized_weights = {cls: (wt / total_weight * 10) for cls, wt in original_weights.items()}
 
 
 @app.route("/", methods=["GET"])
 def home():
-    return "🚽 Restroom Cleanliness YOLOv8 API is running!"
+    return "🧼 Cleanliness Score YOLOv8 API is running!"
 
 
 @app.route("/predict", methods=["POST"])
@@ -54,7 +48,7 @@ def predict():
     if 'images' not in request.files:
         return jsonify({
             "status": "error",
-            "message": "No images uploaded. Please upload using the 'images' field (multipart/form-data)."
+            "message": "No images uploaded. Please upload using 'images' field as multipart/form-data."
         }), 400
 
     files = request.files.getlist('images')
@@ -66,7 +60,6 @@ def predict():
             image_path = tmp_file.name
 
         try:
-            # Run YOLO inference
             results = model(image_path)[0]
             class_ids = results.boxes.cls.cpu().numpy().astype(int)
             confidences = results.boxes.conf.cpu().numpy().astype(float)
@@ -74,16 +67,13 @@ def predict():
             raw_score = 0
             class_confidence_dict = defaultdict(list)
 
-            # Weighted cleanliness scoring
             for cls_id, conf in zip(class_ids, confidences):
                 weight = normalized_weights.get(cls_id, 1.0)
                 raw_score += weight * conf
                 class_confidence_dict[cls_id].append(conf)
 
-            # Invert scale so higher score = cleaner (0–10)
-            cleanliness_score = max(0, round(10.0 - raw_score, 2))
+            cleanliness_score = max(0, round(10.0 - raw_score, 2))  # Clamp to 0–10
 
-            # Breakdown per class
             breakdown = []
             for cls_id, conf_list in class_confidence_dict.items():
                 avg_conf = float(np.mean(conf_list))
@@ -114,3 +104,8 @@ def predict():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080)
+
+
+
+
+
